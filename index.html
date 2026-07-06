@@ -47,6 +47,9 @@
     <option value="1000">1000</option>
   </select>
 
+  <button id="verificarDataBtn" style="background:#666;">Ver data mais recente disponível na base</button>
+  <div id="statusData" style="font-size:13px; color:#666; margin-top:6px;"></div>
+
   <button id="buscarBtn">Buscar empresas</button>
   <div id="statusBusca"></div>
 
@@ -182,6 +185,33 @@ function exportarCsv() {
   URL.revokeObjectURL(url);
 }
 
+async function verificarData() {
+  const projectId = document.getElementById("projectId").value.trim();
+  const statusData = document.getElementById("statusData");
+  if (!projectId) { statusData.textContent = "Informe o ID do seu projeto Google Cloud primeiro."; return; }
+
+  statusData.textContent = "Consultando...";
+  try {
+    const resp = await fetch(`https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries`, {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + accessToken, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: "SELECT MAX(data) as data_recente FROM `basedosdados.br_me_cnpj.estabelecimentos`",
+        useLegacySql: false
+      })
+    });
+    const json = await resp.json();
+    if (json.error) { statusData.textContent = "Erro: " + json.error.message; return; }
+    const dataRecente = json.rows && json.rows[0] ? json.rows[0].f[0].v : null;
+    statusData.textContent = dataRecente
+      ? "Fotografia mais recente disponível: " + dataRecente
+      : "Não foi possível determinar a data mais recente.";
+  } catch (err) {
+    statusData.textContent = "Erro de conexão: " + err.message;
+  }
+}
+
+document.getElementById("verificarDataBtn").addEventListener("click", verificarData);
 document.getElementById("buscarBtn").addEventListener("click", buscar);
 document.getElementById("exportarBtn").addEventListener("click", exportarCsv);
 </script>
