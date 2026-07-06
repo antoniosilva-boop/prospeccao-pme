@@ -34,8 +34,8 @@
   <label for="cnae">Código CNAE (deixe vazio para não filtrar setor)</label>
   <input id="cnae" placeholder="ex: 4721102 (padaria), 5611203 (lanchonete)" />
 
-  <label for="municipio">Município (em maiúsculo, sem acento — ex: SAO PAULO)</label>
-  <input id="municipio" placeholder="ex: SAO PAULO" />
+  <label for="municipio">Estado (UF, sigla de 2 letras — ex: SP)</label>
+  <input id="municipio" placeholder="ex: SP" maxlength="2" />
 
   <label for="dataMin">Data mínima de abertura (opcional)</label>
   <input id="dataMin" type="date" />
@@ -101,12 +101,12 @@ async function buscar() {
 
   let where = ["1=1"];
   if (cnae) where.push(`cnae_fiscal_principal = '${cnae}'`);
-  if (municipio) where.push(`UPPER(municipio) = '${municipio}'`);
-  if (dataMin) where.push(`data_inicio_atividade >= '${dataMin.replace(/-/g, "")}'`);
-  where.push("situacao_cadastral = '02'");
+  if (municipio) where.push(`sigla_uf = '${municipio}'`);
+  if (dataMin) where.push(`data_inicio_atividade >= '${dataMin}'`);
+  where.push("situacao_cadastral = '2'");
 
   const query = `
-    SELECT razao_social, nome_fantasia, cnpj, cnae_fiscal_principal, telefone_1, correio_eletronico, municipio, data_inicio_atividade
+    SELECT cnpj, nome_fantasia, cnae_fiscal_principal, ddd1, telefone1, email, sigla_uf, data_inicio_atividade
     FROM \`basedosdados.br_me_cnpj.estabelecimentos\`
     WHERE ${where.join(" AND ")}
     LIMIT ${limite}
@@ -137,10 +137,10 @@ async function buscar() {
     dadosAtuais = rows.map(r => {
       const v = r.f.map(c => c.v);
       return {
-        nome: v[0] || v[1] || "",
-        cnpj: v[2] || "",
-        cnae: v[3] || "",
-        telefone: v[4] || "",
+        nome: v[1] || "(sem nome fantasia)",
+        cnpj: v[0] || "",
+        cnae: v[2] || "",
+        telefone: (v[3] || "") + " " + (v[4] || ""),
         email: v[5] || "",
         municipio: v[6] || "",
         abertura: v[7] || ""
