@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Prospecção de PMEs</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; color: #222; }
+  h1 { font-size: 22px; }
+  label { display:block; font-size: 13px; color: #555; margin-bottom: 4px; margin-top: 12px; }
+  input, select { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 6px; }
+  button { margin-top: 16px; padding: 10px 18px; background: #1a73e8; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+  button:disabled { background: #ccc; cursor: not-allowed; }
+  table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee; }
+  #status { font-size: 13px; color: #666; margin-top: 8px; }
+  #loginBox { margin: 20px 0; }
+</style>
+</head>
+<body>
+
+<h1>Prospecção de PMEs — base pública de CNPJ</h1>
+<p style="color:#666; font-size:14px;">Busca direto na base pública de CNPJ hospedada no BigQuery (projeto "basedosdados"). Sem custo dentro da cota gratuita mensal do Google.</p>
+
+<div id="loginBox">
+  <div id="g_id_signin"></div>
+  <div id="status"></div>
+</div>
+
+<div id="app" style="display:none;">
+  <label for="projectId">ID do seu projeto Google Cloud (necessário para "faturar" a consulta, mesmo sendo grátis dentro da cota)</label>
+  <input id="projectId" placeholder="ex: prospeccao-pme-123456" />
+
+  <label for="cnae">Código CNAE (deixe vazio para não filtrar setor)</label>
+  <input id="cnae" placeholder="ex: 4721102 (padaria), 5611203 (lanchonete)" />
+
+  <label for="municipio">Município (em maiúsculo, sem acento — ex: SAO PAULO)</label>
+  <input id="municipio" placeholder="ex: SAO PAULO" />
+
+  <label for="dataMin">Data mínima de abertura (opcional)</label>
+  <input id="dataMin" type="date" />
+
+  <label for="limite">Quantidade de resultados</label>
+  <select id="limite">
+    <option value="100">100</option>
+    <option value="500" selected>500</option>
+    <option value="1000">1000</option>
+  </select>
+
+  <button id="buscarBtn">Buscar empresas</button>
+  <div id="statusBusca"></div>
+
+  <div id="resultsWrap" style="display:none;">
+    <button id="exportarBtn">Exportar CSV</button>
+    <table>
+      <thead>
+        <tr><th>Empresa</th><th>CNPJ</th><th>CNAE</th><th>Telefone</th><th>E-mail</th><th>Município</th><th>Abertura</th></tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+let accessToken = null;
+let dadosAtuais = [];
+
+// PASSO IMPORTANTE: troque pelo Client ID que você criar no Google Cloud
+const CLIENT_ID = "COLE_AQUI_SEU_CLIENT_ID.apps.googleusercontent.com";
+
+window.onload = function () {
+  google.accounts.id.initialize({
+    client_id: CLIENT_ID,
+    callback: () => {}
+  });
+
+  const tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: "https://www.googleapis.com/auth/bigquery.readonly",
+    callback: (resp) => {
+      accessToken = resp.access_token;
+      document.getElementById("loginBox").style.display = "none";
+      document.getElementById("app").style.display = "block";
+    }
+  });
+
+  document.getElementById("g_id_signin").innerHTML =
+    '<button style="background:#1a73e8;color:white;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;">Entrar com Google</button>';
+  document.getElementById("g_id_signin").firstChild.onclick = () => tokenClient.requestAccessToken();
+};
+
+async function buscar() {
+  const projectId = document.getElementById("projectId").value.trim();
+  const cnae = document.getElementById("cnae").value.trim();
+  const municipio = document.getElementById("municipio").value.trim().toUpperCase();
+  const dataMin = document.getElementById("dataMin").value;
+  const limite = document.getElementById("limite").value;
+  const statusEl = document.getElementById("statusBusca");
+
+  if (!projectId) { statusEl.textContent = "Informe o ID do seu projeto Google Cloud."; return; }
+
+  let where = ["1=1"];
+  if (cnae) where.push(`cnae_fiscal_principal = '${cnae}'`);
+  if (municipio) where.push(`UPPER(municipio) = '${municipio}'`);
+  if (dataMin) where.push(`data_inicio_atividade >= '${dataMin.replace(/-/g, "")}'`);
+  where.push("situacao_cadastral = '02'");
+
+  const query = `
+    SELECT razao_social, nome_fantasia, cnpj, cnae_fiscal_principal, telefone_1, correio_eletronico, municipio, data_inicio_atividade
+    FROM \`basedosdados.br_me_cnpj.estabelecimentos\`
+    WHERE ${where.join(" AND ")}
+    LIMIT ${limite}
+  `;
+
+  statusEl.textContent = "Buscando...";
+  document.getElementById("buscarBtn").disabled = true;
+
+  try {
+    const resp = await fetch(`https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries`, {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + accessToken,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ query: query, useLegacySql: false })
+    });
+
+    const json = await resp.json();
+
+    if (json.error) {
+      statusEl.textContent = "Erro: " + json.error.message;
+      document.getElementById("buscarBtn").disabled = false;
+      return;
+    }
+
+    const rows = json.rows || [];
+    dadosAtuais = rows.map(r => {
+      const v = r.f.map(c => c.v);
+      return {
+        nome: v[0] || v[1] || "",
+        cnpj: v[2] || "",
+        cnae: v[3] || "",
+        telefone: v[4] || "",
+        email: v[5] || "",
+        municipio: v[6] || "",
+        abertura: v[7] || ""
+      };
+    });
+
+    renderTabela();
+    document.getElementById("resultsWrap").style.display = dadosAtuais.length ? "block" : "none";
+    statusEl.textContent = dadosAtuais.length + " empresas encontradas.";
+  } catch (err) {
+    statusEl.textContent = "Erro de conexão: " + err.message;
+  }
+  document.getElementById("buscarBtn").disabled = false;
+}
+
+function renderTabela() {
+  const tbody = document.getElementById("tbody");
+  tbody.innerHTML = "";
+  dadosAtuais.forEach(d => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${d.nome}</td><td>${d.cnpj}</td><td>${d.cnae}</td><td>${d.telefone}</td><td>${d.email}</td><td>${d.municipio}</td><td>${d.abertura}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function exportarCsv() {
+  if (!dadosAtuais.length) return;
+  const header = ["Nome", "CNPJ", "CNAE", "Telefone", "Email", "Municipio", "Abertura"];
+  const rows = dadosAtuais.map(d => [d.nome, d.cnpj, d.cnae, d.telefone, d.email, d.municipio, d.abertura]
+    .map(v => `"${String(v || "").replace(/"/g, '""')}"`).join(","));
+  const csv = [header.join(","), ...rows].join("\n");
+  const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "leads_pme_" + new Date().toISOString().slice(0, 10) + ".csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById("buscarBtn").addEventListener("click", buscar);
+document.getElementById("exportarBtn").addEventListener("click", exportarCsv);
+</script>
+
+</body>
+</html>
