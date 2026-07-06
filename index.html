@@ -106,7 +106,7 @@ async function buscar() {
   where.push("situacao_cadastral = '2'");
 
   const query = `
-    SELECT cnpj, nome_fantasia, cnae_fiscal_principal, ddd1, telefone1, email, sigla_uf, data_inicio_atividade
+    SELECT cnpj, nome_fantasia, cnae_fiscal_principal, ddd_1, telefone_1, email, sigla_uf, data_inicio_atividade
     FROM \`basedosdados.br_me_cnpj.estabelecimentos\`
     WHERE ${where.join(" AND ")}
     LIMIT ${limite}
