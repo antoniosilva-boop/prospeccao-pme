@@ -108,7 +108,8 @@ async function buscar() {
   const query = `
     SELECT cnpj, nome_fantasia, cnae_fiscal_principal, ddd_1, telefone_1, email, sigla_uf, data_inicio_atividade
     FROM \`basedosdados.br_me_cnpj.estabelecimentos\`
-    WHERE ${where.join(" AND ")}
+    WHERE data = (SELECT MAX(data) FROM \`basedosdados.br_me_cnpj.estabelecimentos\`)
+      AND ${where.join(" AND ")}
     LIMIT ${limite}
   `;
 
