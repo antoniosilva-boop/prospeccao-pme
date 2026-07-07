@@ -69,7 +69,7 @@ let accessToken = null;
 let dadosAtuais = [];
 
 // PASSO IMPORTANTE: troque pelo Client ID que você criar no Google Cloud
-const CLIENT_ID = "318515762833-u5lssmjnb35kq5s6og125s2srme5r258.apps.googleusercontent.com";
+const CLIENT_ID = "COLE_AQUI_SEU_CLIENT_ID.apps.googleusercontent.com";
 
 window.onload = function () {
   google.accounts.id.initialize({
@@ -103,15 +103,26 @@ async function buscar() {
   if (!projectId) { statusEl.textContent = "Informe o ID do seu projeto Google Cloud."; return; }
 
   let where = ["1=1"];
-  if (cnae) where.push(`cnae_fiscal_principal = '${cnae}'`);
-  if (municipio) where.push(`sigla_uf = '${municipio}'`);
-  if (dataMin) where.push(`data_inicio_atividade >= '${dataMin}'`);
-  where.push("situacao_cadastral = '2'");
+  if (cnae) where.push(`est.cnae_fiscal_principal = '${cnae}'`);
+  if (municipio) where.push(`est.sigla_uf = '${municipio}'`);
+  if (dataMin) where.push(`est.data_inicio_atividade >= '${dataMin}'`);
+  where.push("est.situacao_cadastral = '2'");
 
   const query = `
-    SELECT cnpj, nome_fantasia, cnae_fiscal_principal, ddd_1, telefone_1, email, sigla_uf, data_inicio_atividade
-    FROM \`basedosdados.br_me_cnpj.estabelecimentos\`
-    WHERE data = (SELECT MAX(data) FROM \`basedosdados.br_me_cnpj.estabelecimentos\`)
+    SELECT
+      est.cnpj,
+      COALESCE(NULLIF(est.nome_fantasia, ''), emp.razao_social) AS nome_exibir,
+      est.cnae_fiscal_principal,
+      est.ddd_1,
+      est.telefone_1,
+      est.email,
+      est.sigla_uf,
+      est.data_inicio_atividade
+    FROM \`basedosdados.br_me_cnpj.estabelecimentos\` est
+    JOIN \`basedosdados.br_me_cnpj.empresas\` emp
+      ON SUBSTR(est.cnpj, 1, 8) = emp.cnpj_basico
+      AND emp.data = est.data
+    WHERE est.data = (SELECT MAX(data) FROM \`basedosdados.br_me_cnpj.estabelecimentos\`)
       AND ${where.join(" AND ")}
     LIMIT ${limite}
   `;
@@ -141,7 +152,7 @@ async function buscar() {
     dadosAtuais = rows.map(r => {
       const v = r.f.map(c => c.v);
       return {
-        nome: v[1] || "(sem nome fantasia)",
+        nome: v[1] || "(nome não informado)",
         cnpj: v[0] || "",
         cnae: v[2] || "",
         telefone: (v[3] || "") + " " + (v[4] || ""),
